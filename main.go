@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/Shopify/sarama"
 	"github.com/dghubble/go-twitter/twitter"
 	"github.com/mitchellh/colorstring"
 	"os"
@@ -15,6 +16,7 @@ var (
 	client_secret = ""
 	access_token  = ""
 	access_secret = ""
+	producer      sarama.SyncProducer
 )
 
 func printError(err error) {
@@ -25,6 +27,10 @@ func printError(err error) {
 func onTweet(tweet *twitter.Tweet) {
 	url := fmt.Sprintf("https://twitter.com/%v/status/%v", tweet.User.ScreenName, tweet.IDStr)
 	fmt.Printf("\n\n%v:\n%v", url, tweet.Text)
+
+	msg := Tweet2Message(tweet)
+
+	producer.SendMessage(msg)
 }
 
 func init() {
@@ -35,6 +41,9 @@ func init() {
 }
 
 func main() {
+	brokers := []string{"localhost:9092"}
+	producer, _ = NewProducer(brokers)
+
 	if client_key == "" || client_secret == "" || access_token == "" || access_secret == "" {
 		printError(errors.New("Please set the client key, secret, access token & secrent"))
 	}

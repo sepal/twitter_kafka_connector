@@ -57,7 +57,7 @@ func (stream *Stream) OnTweetHandler(handler func(tweet *twitter.Tweet)) {
 // new tweets or events.
 func (stream *Stream) Run() {
 	stream.stream, _ = stream.client.Streams.Filter(stream.filters)
-	go stream.demux.HandleChan(stream.stream.Messages);
+	go stream.demux.HandleChan(stream.stream.Messages)
 }
 
 // Stop stops the twitter stream.
