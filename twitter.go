@@ -48,15 +48,19 @@ func (stream *Stream) FilterKeyword(keyword string) {
 	stream.filters.Track = append(stream.filters.Track, keyword)
 }
 
-func (stream *Stream) OnTweet(handler func(tweet *twitter.Tweet)) {
+// OnTweetHandler registers a new handler function for when a tweet is posted.
+func (stream *Stream) OnTweetHandler(handler func(tweet *twitter.Tweet)) {
 	stream.demux.Tweet = handler
 }
 
+// Run creates a new twitter stream object and starts a go routine to listen to
+// new tweets or events.
 func (stream *Stream) Run() {
 	stream.stream, _ = stream.client.Streams.Filter(stream.filters)
 	go stream.demux.HandleChan(stream.stream.Messages);
 }
 
+// Stop stops the twitter stream.
 func (stream *Stream) Stop() {
 	stream.stream.Stop()
 }

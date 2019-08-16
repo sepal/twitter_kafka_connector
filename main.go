@@ -22,6 +22,11 @@ func printError(err error) {
 	os.Exit(1)
 }
 
+func onTweet(tweet *twitter.Tweet) {
+	url := fmt.Sprintf("https://twitter.com/%v/status/%v", tweet.User.ScreenName, tweet.IDStr)
+	fmt.Printf("\n\n%v:\n%v", url, tweet.Text)
+}
+
 func init() {
 	client_key = os.Getenv("CLIENT_KEY")
 	client_secret = os.Getenv("CLIENT_SECRET")
@@ -39,10 +44,7 @@ func main() {
 	stream.FilterKeyword("cats")
 	stream.FilterKeyword("dogs")
 
-	stream.OnTweet(func(tweet *twitter.Tweet) {
-		url := fmt.Sprintf("https://twitter.com/%v/status/%v", tweet.User.ScreenName, tweet.IDStr)
-		fmt.Printf("\n\n%v:\n%v", url, tweet.Text)
-	})
+	stream.OnTweetHandler(onTweet)
 
 	stream.Run()
 	defer stream.Stop()
