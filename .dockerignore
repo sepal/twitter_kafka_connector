@@ -1,0 +1,5 @@
+# Enviroment & config files containing tokens, secrets, etc.
+.env
+config.yml
+vendor/*
+.git
