@@ -16,8 +16,8 @@ type Stream struct {
 
 // NewStream creates a new stream object.
 func NewStream(clientKey string, clientSecret string, accessKey string, accessToken string) *Stream {
-	config := oauth1.NewConfig(client_key, client_secret)
-	token := oauth1.NewToken(access_token, access_secret)
+	config := oauth1.NewConfig(clientKey, clientSecret)
+	token := oauth1.NewToken(accessKey, accessToken)
 
 	httpClient := config.Client(oauth1.NoContext, token)
 

@@ -29,7 +29,7 @@ func valueSchemaName(topic string) string {
 }
 
 // NewProducer creates producers with the given brokers.
-func NewTweetProducer(brokers []string, topic string) (*TweetProducer, error) {
+func NewTweetProducer(brokers []string, schemaRegistry string, topic string) (*TweetProducer, error) {
 	// Create a new sync kafka producer.
 	config := sarama.NewConfig()
 	// @todo: Allow users to set the kafka versions.
@@ -40,8 +40,7 @@ func NewTweetProducer(brokers []string, topic string) (*TweetProducer, error) {
 	p, err := sarama.NewSyncProducer(brokers, config)
 
 	// Create a new schema registry client.
-	r, err := schemaregistry.NewClient(schemaregistry.DefaultURL)
-
+	r, err := schemaregistry.NewClient(schemaRegistry)
 
 	if err != nil {
 		return nil, err

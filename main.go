@@ -3,19 +3,18 @@ package main
 import (
 	"errors"
 	"fmt"
+	schemaregistry "github.com/Landoop/schema-registry"
 	"github.com/dghubble/go-twitter/twitter"
 	"github.com/mitchellh/colorstring"
+	"github.com/spf13/viper"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 )
 
 var (
-	client_key    = ""
-	client_secret = ""
-	access_token  = ""
-	access_secret = ""
-	producer      *TweetProducer
+	producer *TweetProducer
 )
 
 func printError(err error) {
@@ -23,42 +22,71 @@ func printError(err error) {
 	os.Exit(1)
 }
 
-func onTweet(tweet *twitter.Tweet) {
-	url := fmt.Sprintf("https://twitter.com/%v/status/%v", tweet.User.ScreenName, tweet.IDStr)
-	fmt.Printf("\n\n%v:\n%v", url, tweet.Text)
-
-	err := producer.Post(tweet)
-
-	if err != nil {
-		fmt.Println(colorstring.Color("[red] Error while posting tweet: " + err.Error()))
-	}
-}
-
 func init() {
-	client_key = os.Getenv("CLIENT_KEY")
-	client_secret = os.Getenv("CLIENT_SECRET")
-	access_token = os.Getenv("ACCESS_TOKEN")
-	access_secret = os.Getenv("ACCESS_SECRET")
+	// Default kafka settings.
+	viper.SetDefault("KAFKA_BROKERS", "localhost:9092")
+	viper.SetDefault("SCHEMA_REGISTRY", schemaregistry.DefaultURL)
+	viper.SetDefault("TWEET_TOPIC", "tweets")
+
+	// Bind all values to viper.
+	viper.BindEnv("kafka_brokers")
+	viper.BindEnv("schema_registry")
+	viper.BindEnv("tweet_topic")
+
+	viper.BindEnv("client_key")
+	viper.BindEnv("client_secret")
+	viper.BindEnv("access_token")
+	viper.BindEnv("access_secret")
+
+	// Allow to set the config via config file.
+	viper.SetConfigName("config")
+	viper.AddConfigPath("/etc/twitter_kafka_connect")
+	viper.AddConfigPath(".")
+
+	err := viper.ReadInConfig() // Find and read the config file
+	if err != nil {
+		// Ignore config file not found, since env vars can be set.
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			printError(err)
+		}
+	}
 }
 
 func main() {
 	var err error
-	producer, err = NewTweetProducer([]string{"localhost:9092"}, "tweets")
+
+	brokers := strings.Split(viper.GetString("kafka_brokers"), ",")
+
+	producer, err = NewTweetProducer(brokers, viper.GetString("schema_registry"), viper.GetString("tweet_topic"))
 
 	if err != nil {
 		printError(err)
 	}
 
-	if client_key == "" || client_secret == "" || access_token == "" || access_secret == "" {
+	clientKey := viper.GetString("client_key")
+	clientSecret := viper.GetString("client_secret")
+	accessToken := viper.GetString("access_token")
+	accessSecret := viper.GetString("access_secret")
+
+	if clientKey == "" || clientSecret == "" || accessToken == "" || accessSecret == "" {
 		printError(errors.New("Please set the client key, secret, access token & secrent."))
 	}
 
-	stream := NewStream(client_key, client_secret, access_token, access_secret)
+	stream := NewStream(clientKey, clientSecret, accessToken, accessSecret)
 
 	stream.FilterKeyword("cats")
 	stream.FilterKeyword("dogs")
 
-	stream.OnTweetHandler(onTweet)
+	stream.OnTweetHandler(func(tweet *twitter.Tweet) {
+		url := fmt.Sprintf("https://twitter.com/%v/status/%v", tweet.User.ScreenName, tweet.IDStr)
+		fmt.Printf("\n\n%v:\n%v", url, tweet.Text)
+
+		err := producer.Post(tweet)
+
+		if err != nil {
+			fmt.Println(colorstring.Color("[red] Error while posting tweet: " + err.Error()))
+		}
+	})
 
 	stream.Run()
 	defer stream.Stop()
