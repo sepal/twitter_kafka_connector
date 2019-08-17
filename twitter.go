@@ -31,8 +31,10 @@ func NewStream(clientKey string, clientSecret string, accessKey string, accessTo
 	return stream
 }
 
-// FilterKeyword filters by the given keyword.
-func (stream *Stream) FilterKeyword(keyword string) {
+// TrackKeyword tracks the given keyword. If this function is called multiple
+// times, then each keyword is tracked i.e. all filters are concatenated with
+// OR.
+func (stream *Stream) TrackKeyword(keyword string) {
 	if stream.filters == nil {
 		stream.filters = &twitter.StreamFilterParams{
 			Track: []string{keyword},

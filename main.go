@@ -38,6 +38,9 @@ func init() {
 	viper.BindEnv("access_token")
 	viper.BindEnv("access_secret")
 
+	// Twitter stream settings.
+	viper.BindEnv("keywords")
+
 	// Allow to set the config via config file.
 	viper.SetConfigName("config")
 	viper.AddConfigPath("/etc/twitter_kafka_connect")
@@ -74,8 +77,12 @@ func main() {
 
 	stream := NewStream(clientKey, clientSecret, accessToken, accessSecret)
 
-	stream.FilterKeyword("cats")
-	stream.FilterKeyword("dogs")
+	keywords := viper.GetStringSlice("keywords")
+
+
+	for _, keyword := range keywords {
+		stream.TrackKeyword(keyword)
+	}
 
 	stream.OnTweetHandler(func(tweet *twitter.Tweet) {
 		url := fmt.Sprintf("https://twitter.com/%v/status/%v", tweet.User.ScreenName, tweet.IDStr)
@@ -87,6 +94,8 @@ func main() {
 			fmt.Println(colorstring.Color("[red] Error while posting tweet: " + err.Error()))
 		}
 	})
+
+	fmt.Printf("Starting ingesting twitter stream for the keywords: %v", strings.Join(keywords, ", "))
 
 	stream.Run()
 	defer stream.Stop()
