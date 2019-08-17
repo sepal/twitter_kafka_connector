@@ -1,44 +1,135 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	schemaregistry "github.com/Landoop/schema-registry"
 	"github.com/Shopify/sarama"
 	"github.com/dghubble/go-twitter/twitter"
+	"github.com/linkedin/goavro"
+	"strconv"
 )
 
+// Tweet represents a twitter post in kafka.
 type Tweet map[string]string
 
+// TweetProducer creates Tweet messages in kafka.
+type TweetProducer struct {
+	producer       sarama.SyncProducer
+	schemaRegistry *schemaregistry.Client
+	codec          *goavro.Codec
+	topic          string
+	schema         schemaregistry.Schema
+}
+
+// valueSchemaName Returns the subject name for a value schema
+func valueSchemaName(topic string) string {
+	return topic + "-value"
+}
+
 // NewProducer creates producers with the given brokers.
-func NewProducer(brokers []string) (sarama.SyncProducer, error) {
+func NewTweetProducer(brokers []string, topic string) (*TweetProducer, error) {
+	// Create a new sync kafka producer.
 	config := sarama.NewConfig()
 	config.Producer.Partitioner = sarama.NewRandomPartitioner
 	config.Producer.RequiredAcks = sarama.WaitForAll
 	config.Producer.Return.Successes = true
-	producer, err := sarama.NewSyncProducer(brokers, config)
+	p, err := sarama.NewSyncProducer(brokers, config)
 
-	return producer, err
+	// Create a new schema registry client.
+	r, err := schemaregistry.NewClient(schemaregistry.DefaultURL)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the latest schema version for this given topic.
+	// @todo: Give the option to pin the schema id.
+	schema, err := r.GetLatestSchema(valueSchemaName(topic))
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a new avro codec for the schema we fetched.
+	codec, err := goavro.NewCodec(schema.Schema)
+
+	if err != nil {
+		return nil, err
+	}
+
+	producer := TweetProducer{
+		producer:       p,
+		schemaRegistry: r,
+		topic:          topic,
+		schema:         schema,
+		codec:          codec,
+	}
+
+	return &producer, err
 }
 
-// Converts a tweet into a message for kafka.
-func Tweet2Message(tweet *twitter.Tweet) *sarama.ProducerMessage {
+// Post a tweet to kafka.
+func (p *TweetProducer) Post(tweet *twitter.Tweet) error {
 	url := fmt.Sprintf("https://twitter.com/%v/status/%v", tweet.User.ScreenName, tweet.IDStr)
 
-	data := map[string]string{
-		"id":     tweet.IDStr,
-		"author": tweet.User.ScreenName,
-		"text":   tweet.Text,
-		"url":    url,
-		"lang":   tweet.Lang,
+	// We need the created date as int, so that connectors can convert it to a
+	// date object when inserting to a database.
+	created, err := strconv.ParseInt(tweet.CreatedAt, 10, 64)
+
+	if err != nil {
+		return err
 	}
 
-	jsonData, _ := json.Marshal(data)
+	// Build the data we want to post, and convert it first to json, then to the
+	// the required avro format.
+	data := map[string]interface{}{
+		"id":      tweet.IDStr,
+		"created": created,
+		"author":  tweet.User.ScreenName,
+		"text":    tweet.Text,
+		"url":     url,
+		"lang":    tweet.Lang,
+	}
+
+	jsonData, err := json.Marshal(data)
+
+	if err != nil {
+		return err
+	}
+	native, _, err := p.codec.NativeFromTextual(jsonData)
+
+	if err != nil {
+		return err
+	}
+
+	binData, err := p.codec.BinaryFromNative(nil, native)
+
+	if err != nil {
+		return err
+	}
+
+	// Kafka Avro uses 4 bytes for the schema id. For details check
+	// https://docs.confluent.io/current/schema-registry/serializer-formatter.html#wire-format
+	binSchemaID := make([]byte, 4)
+	binary.BigEndian.PutUint32(binSchemaID, uint32(p.schema.ID))
+
+	// Construct the message expected by kafka avro.
+	var binValue []byte
+	// The first byte is a magic byte.
+	binValue = append(binValue, byte(0))
+	// The next 4 bytes is reserved for the schema id.
+	binValue = append(binValue, binSchemaID...)
+	// The rest is the actual data.
+	binValue = append(binValue, binData...)
 
 	msg := &sarama.ProducerMessage{
-		Topic:     "tweets",
-		Partition: -1,
-		Value:     sarama.ByteEncoder(jsonData),
+		Topic: p.topic,
+		Value: sarama.StringEncoder(binValue),
 	}
 
-	return msg
+	_, _, err = p.producer.SendMessage(msg)
+
+	return err
 }
