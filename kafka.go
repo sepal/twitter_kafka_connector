@@ -8,7 +8,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/dghubble/go-twitter/twitter"
 	"github.com/linkedin/goavro"
-	"strconv"
+	"time"
 )
 
 // Tweet represents a twitter post in kafka.
@@ -32,6 +32,8 @@ func valueSchemaName(topic string) string {
 func NewTweetProducer(brokers []string, topic string) (*TweetProducer, error) {
 	// Create a new sync kafka producer.
 	config := sarama.NewConfig()
+	// @todo: Allow users to set the kafka versions.
+	config.Version = sarama.V2_3_0_0
 	config.Producer.Partitioner = sarama.NewRandomPartitioner
 	config.Producer.RequiredAcks = sarama.WaitForAll
 	config.Producer.Return.Successes = true
@@ -39,6 +41,7 @@ func NewTweetProducer(brokers []string, topic string) (*TweetProducer, error) {
 
 	// Create a new schema registry client.
 	r, err := schemaregistry.NewClient(schemaregistry.DefaultURL)
+
 
 	if err != nil {
 		return nil, err
@@ -74,9 +77,11 @@ func NewTweetProducer(brokers []string, topic string) (*TweetProducer, error) {
 func (p *TweetProducer) Post(tweet *twitter.Tweet) error {
 	url := fmt.Sprintf("https://twitter.com/%v/status/%v", tweet.User.ScreenName, tweet.IDStr)
 
-	// We need the created date as int, so that connectors can convert it to a
-	// date object when inserting to a database.
-	created, err := strconv.ParseInt(tweet.CreatedAt, 10, 64)
+	// Twitter provides the dates in the format
+	// "created_at": "Wed Oct 10 20:19:24 +0000 2018", which seems like ruby
+	// format. See:
+	// https://developer.twitter.com/en/docs/tweets/data-dictionary/overview/tweet-object.html#tweet-dictionary
+	t, err := time.Parse(time.RubyDate, tweet.CreatedAt)
 
 	if err != nil {
 		return err
@@ -85,8 +90,8 @@ func (p *TweetProducer) Post(tweet *twitter.Tweet) error {
 	// Build the data we want to post, and convert it first to json, then to the
 	// the required avro format.
 	data := map[string]interface{}{
-		"id":      tweet.IDStr,
-		"created": created,
+		"id":      tweet.ID,
+		"timestamp": t.Unix(),
 		"author":  tweet.User.ScreenName,
 		"text":    tweet.Text,
 		"url":     url,
